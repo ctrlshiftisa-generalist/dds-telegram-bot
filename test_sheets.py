@@ -10,9 +10,11 @@ async def main():
     )
     users_I = sheets.get_list_values("Списки!I2:I")
     users_C = sheets.get_list_values("Списки!C2:C")
+    projects_K = sheets.get_list_values("Списки!K2:K")
     print("USERS in I:", users_I)
     print("USERS in C:", users_C)
-    print("PROJECTS:", projects)
+    print("PROJECTS in K:", projects_K)
 
 if __name__ == "__main__":
     asyncio.run(main())
+

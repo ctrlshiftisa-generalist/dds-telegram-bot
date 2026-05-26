@@ -71,7 +71,7 @@ def _is_editing(data: dict) -> bool:
 # ── Step 1: Start request / Choose operation type ──────────────────────────
 
 @router.message(F.text == "📝 Создать заявку")
-async def start_request(message: Message, state: FSMContext):
+async def start_request(message: Message, state: FSMContext, sheets: SheetsService):
     """Begin the request creation flow."""
     current_state = await state.get_state()
     if current_state is not None:
@@ -83,10 +83,21 @@ async def start_request(message: Message, state: FSMContext):
         await message.answer("Вы не зарегистрированы. Нажмите /start")
         return
 
+    # Check if user's name is still in the active list of users from Google Sheets
+    users = await asyncio.to_thread(sheets.get_users)
+    if user["name"] not in users:
+        await message.answer(
+            f"⚠️ Вашего имени (<b>{user['name']}</b>) больше нет в списке сотрудников в Google Таблице.\n\n"
+            "Пожалуйста, обновите ваш профиль с помощью команды /start или обратитесь к администратору.",
+            parse_mode="HTML"
+        )
+        return
+
     await state.clear()
     await state.update_data(employee_name=user["name"])
     await state.set_state(RequestCreation.choosing_operation)
     await message.answer("Выберите тип операции:", reply_markup=operations_kb())
+
 
 
 @router.callback_query(RequestCreation.choosing_operation, F.data.startswith("op:"))
@@ -219,16 +230,30 @@ async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: She
         users = await asyncio.to_thread(sheets.get_users)
         projects = await asyncio.to_thread(sheets.get_projects)
 
-        if data["employee_name"] not in users or data["project"] not in projects:
-            await callback.message.edit_text(
-                "❌ Выбранное значение пользователя или проекта отсутствует в справочнике. "
-                "Обновите список или обратитесь к администратору."
+        is_user_valid = data["employee_name"] in users
+        is_project_valid = data["project"] in projects
+
+        if not is_user_valid or not is_project_valid:
+            error_details = []
+            if not is_user_valid:
+                error_details.append(f"пользователь '<b>{data['employee_name']}</b>' отсутствует в списке сотрудников")
+                logger.warning("Submission failed: user %s not in %s", data["employee_name"], users)
+            if not is_project_valid:
+                error_details.append(f"проект '<b>{data['project']}</b>' отсутствует в списке проектов")
+                logger.warning("Submission failed: project %s not in %s", data["project"], projects)
+            
+            error_msg = (
+                "❌ <b>Ошибка валидации данных:</b>\n\n"
+                + "\n".join(f"— {detail}" for detail in error_details) +
+                "\n\nПожалуйста, обновите ваш профиль (/start) или выберите корректные значения."
             )
+            await callback.message.edit_text(error_msg, parse_mode="HTML")
             await callback.message.answer(
                 "Выберите действие:", reply_markup=main_menu_kb()
             )
             await state.clear()
             return
+
 
         # Immediately remove buttons to prevent re-clicks
         await callback.message.edit_text(
