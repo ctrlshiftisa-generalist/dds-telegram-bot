@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+service_account.json
+data/
+*.db
+.venv/
+venv/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
