@@ -43,8 +43,8 @@ class SheetsService:
         return self.get_list_values("Списки!C2:C")
 
     def get_projects(self) -> list[str]:
-        """Get valid projects from Списки!K2:K"""
-        return self.get_list_values("Списки!K2:K")
+        """Get valid projects from Списки!L2:L"""
+        return self.get_list_values("Списки!L2:L")
 
     def append_row(
         self,
