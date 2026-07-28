@@ -13,6 +13,7 @@ from bot.database import init_db
 from bot.services.sheets import SheetsService
 from bot.handlers.common import router as common_router
 from bot.handlers.request import router as request_router
+from bot.handlers.admin import router as admin_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 async def main():
     logger.info("Starting DDS bot...")
 
-    # Initialize database
+    # Initialize database (creates tables + seeds operation types on first run)
     await init_db(settings.database_path)
     logger.info("Database initialized at %s", settings.database_path)
 
@@ -35,8 +36,17 @@ async def main():
         service_account_info=service_account_info,
         spreadsheet_id=settings.google_sheet_id,
         sheet_name=settings.sheet_name,
+        payments_spreadsheet_id=settings.get_payments_spreadsheet_id(),
+        dds_header_row=settings.dds_header_row,
+        payments_header_row=settings.payments_header_row,
     )
-    logger.info("Google Sheets service initialized (sheet: %s)", settings.sheet_name)
+    logger.info(
+        "Google Sheets service initialized (ДДС sheet: %s row %s, Payments spreadsheet: %s row %s)",
+        settings.sheet_name,
+        settings.dds_header_row,
+        settings.get_payments_spreadsheet_id(),
+        settings.payments_header_row,
+    )
 
     # Create bot and dispatcher
     bot = Bot(
@@ -45,12 +55,18 @@ async def main():
     )
     dp = Dispatcher()
 
-    # Register routers
+    from bot.middlewares import BanMiddleware
+    
+    # Register routers (order matters: admin first for command priority)
+    dp.include_router(admin_router)
     dp.include_router(common_router)
     dp.include_router(request_router)
 
-    # Inject SheetsService into handlers via middleware-like approach
-    # (pass as kwarg to dispatcher — aiogram 3 supports this)
+    # Register middlewares
+    dp.message.middleware(BanMiddleware())
+    dp.callback_query.middleware(BanMiddleware())
+
+    # Inject SheetsService into all handlers via aiogram 3 dependency injection
     dp["sheets"] = sheets
 
     logger.info("Bot is running. Polling for updates...")

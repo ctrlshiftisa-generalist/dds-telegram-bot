@@ -7,13 +7,6 @@ from aiogram.types import (
     KeyboardButton,
 )
 
-# ── Constants ──────────────────────────────────────────────────────────────
-
-OPERATION_TYPES = [
-    "Съемки", "Пиар", "Подписки", "Другое"
-]
-
-
 
 # ── Main menu (reply keyboard) ────────────────────────────────────────────
 
@@ -27,14 +20,17 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
 
 
-# ── Operation types (inline) ──────────────────────────────────────────────
+# ── Operation types (inline, built dynamically from DB) ───────────────────
 
-def operations_kb() -> InlineKeyboardMarkup:
+def operations_kb(operation_types: list[str]) -> InlineKeyboardMarkup:
+    """
+    Build operation type keyboard from Google Sheets list.
+    """
     buttons = []
     row = []
-    for op in OPERATION_TYPES:
-        row.append(InlineKeyboardButton(text=op, callback_data=f"op:{op}"))
-        if len(row) == 3:
+    for op_name in operation_types:
+        row.append(InlineKeyboardButton(text=op_name, callback_data=f"op:{op_name}"))
+        if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
@@ -43,8 +39,9 @@ def operations_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def _project_list_kb(projects: list[str]) -> list[list[InlineKeyboardButton]]:
-    """Build a 2-column grid of project buttons."""
+# ── Projects (inline, 2-column grid) ─────────────────────────────────────
+
+def projects_kb(projects: list[str]) -> InlineKeyboardMarkup:
     buttons = []
     row = []
     for p in projects:
@@ -54,23 +51,23 @@ def _project_list_kb(projects: list[str]) -> list[list[InlineKeyboardButton]]:
             row = []
     if row:
         buttons.append(row)
-    return buttons
-
-
-def projects_kb(projects: list[str]) -> InlineKeyboardMarkup:
-    buttons = _project_list_kb(projects)
     buttons.append([InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_request")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# ── Users (inline, one per row) ──────────────────────────────────────────
+
 def users_kb(users: list[str]) -> InlineKeyboardMarkup:
-    buttons = []
-    for u in users:
-        buttons.append([InlineKeyboardButton(text=u, callback_data=f"user:{u}")])
+    buttons = [[InlineKeyboardButton(text=u, callback_data=f"user:{u}")] for u in users]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ── Confirmation ───────────────────────────────────────────────────────────
+def positions_kb(positions: list[str]) -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(text=p, callback_data=f"pos:{p}")] for p in positions]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ── Confirmation ──────────────────────────────────────────────────────────
 
 def confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -84,18 +81,37 @@ def confirm_kb() -> InlineKeyboardMarkup:
 
 # ── Edit field selector ───────────────────────────────────────────────────
 
-def edit_field_kb() -> InlineKeyboardMarkup:
+def edit_field_kb(has_project_choice: bool = True) -> InlineKeyboardMarkup:
+    """
+    has_project_choice=False when project was assigned automatically
+    (Подписки / Другое) — no project button shown.
+    """
+    rows = [
+        [InlineKeyboardButton(text="Тип операции", callback_data="edit_field:operation")],
+        [InlineKeyboardButton(text="Сумма", callback_data="edit_field:amount")],
+    ]
+    if has_project_choice:
+        rows.append([InlineKeyboardButton(text="Проект", callback_data="edit_field:project")])
+    rows.append([InlineKeyboardButton(text="Реквизиты / Назначение", callback_data="edit_field:requisites")])
+    rows.append([InlineKeyboardButton(text="← Назад к подтверждению", callback_data="back_to_confirm")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Тип операции", callback_data="edit_field:operation"),
-            InlineKeyboardButton(text="Сумма", callback_data="edit_field:amount"),
-        ],
-        [
-            InlineKeyboardButton(text="Проект", callback_data="edit_field:project"),
-        ],
-        [
-            InlineKeyboardButton(text="Реквизиты", callback_data="edit_field:card"),
-            InlineKeyboardButton(text="Назначение", callback_data="edit_field:purpose"),
-        ],
-        [InlineKeyboardButton(text="← Назад к подтверждению", callback_data="back_to_confirm")],
+        [InlineKeyboardButton(text="🚫 Отмена", callback_data="admin_cancel")],
     ])
+
+def users_access_kb(users: list[dict]) -> InlineKeyboardMarkup:
+    """Keyboard for managing user access."""
+    buttons = []
+    for user in users:
+        status_icon = "🚫" if user.get("is_banned") else "✅"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_icon} {user['name']}",
+                callback_data=f"toggle_ban:{user['telegram_id']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="Закрыть", callback_data="admin_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

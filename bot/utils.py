@@ -4,20 +4,20 @@ import re
 from datetime import datetime
 from typing import Optional
 
-# Russian month abbreviations for the period field
+# Russian month names for the period field
 MONTH_ABBR = {
-    1: "янв.",
-    2: "фев.",
-    3: "мар.",
-    4: "апр.",
-    5: "май.",
-    6: "июн.",
-    7: "июл.",
-    8: "авг.",
-    9: "сен.",
-    10: "окт.",
-    11: "ноя.",
-    12: "дек.",
+    1: "январь",
+    2: "февраль",
+    3: "март",
+    4: "апрель",
+    5: "май",
+    6: "июнь",
+    7: "июль",
+    8: "август",
+    9: "сентябрь",
+    10: "октябрь",
+    11: "ноябрь",
+    12: "декабрь",
 }
 
 
@@ -61,11 +61,9 @@ def format_amount(amount: float) -> str:
 
 
 def get_current_period() -> str:
-    """Get current period string in format 'май. 26'."""
+    """Get current period string in format '01.mm.yyyy'."""
     now = datetime.now()
-    month_str = MONTH_ABBR[now.month]
-    year_str = str(now.year)[-2:]  # Last 2 digits
-    return f"{month_str} {year_str}"
+    return f"01.{now.strftime('%m.%Y')}"
 
 
 def get_today_date() -> str:
@@ -79,3 +77,41 @@ def format_card_number(text: str) -> str:
     if cleaned.isdigit() and len(cleaned) == 16:
         return f"{cleaned[:4]} {cleaned[4:8]} {cleaned[8:12]} {cleaned[12:]}"
     return text
+
+
+def parse_card_input(text: str) -> tuple[bool, str, str]:
+    """
+    Parse and validate requisites input.
+    
+    Expected format: 16 digits (MUST be formatted with spaces: 0000 0000 0000 0000) 
+    + optional comment after space.
+    
+    Returns:
+        (is_valid, formatted_text, error_message)
+    """
+    raw = text.strip()
+    if not raw:
+        return False, "", "❌ Реквизиты не могут быть пустыми."
+    
+    # Check if the text starts with 16 digits formatted properly with spaces
+    match = re.match(r"^(\d{4} \d{4} \d{4} \d{4})(?:\s+(.*))?$", raw)
+    if match:
+        card_str = match.group(1)
+        comment = match.group(2)
+        if comment:
+            return True, f"{card_str} {comment.strip()}", ""
+        else:
+            return True, card_str, ""
+            
+    # If it didn't match the exact format, let's see if they at least provided 16 digits
+    digits_only = re.sub(r"\D", "", raw)
+    if len(digits_only) >= 16:
+        # They provided 16 digits but without proper spaces
+        return False, "", "❌ Пожалуйста, добавьте пробелы между каждыми 4 цифрами номера карты (формат: 0000 0000 0000 0000)."
+        
+    return False, "", (
+        "❌ Введите корректные реквизиты.\n\n"
+        "Формат: <b>16 цифр номера карты (обязательно с пробелами)</b> + назначение платежа\n"
+        "Например: <code>1234 5678 9012 3456 за аренду студии</code>"
+    )
+
