@@ -346,6 +346,20 @@ class SheetsService:
         col_letter = _col_letter(idx)
         return self.get_list_values(f"Списки!{col_letter}3:{col_letter}")
 
+    def get_allowed_ids(self) -> list[str]:
+        """
+        Get list of allowed Telegram IDs from the 'Доступ' column in 'Списки' sheet.
+        """
+        headers_row2 = self._read_headers(self._spreadsheet_id, "Списки", 2)
+        
+        idx = self._find_header_col(headers_row2, "Доступ")
+        if idx is None:
+            logger.error("Could not find 'Доступ' column in row 2 of Списки sheet.")
+            return []
+            
+        col_letter = _col_letter(idx)
+        return self.get_list_values(f"Списки!{col_letter}3:{col_letter}")
+
     # ── Write to ДДС ──────────────────────────────────────────────────────
 
     # Headers we map to in the ДДС sheet.

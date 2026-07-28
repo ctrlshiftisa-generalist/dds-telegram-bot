@@ -1,13 +1,20 @@
+import asyncio
 import logging
+import time
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 
-from bot import database as db
+from bot.config import settings
 
 logger = logging.getLogger(__name__)
 
-class BanMiddleware(BaseMiddleware):
+# Simple in-memory cache
+CACHE_ALLOWED_IDS = []
+CACHE_TIMESTAMP = 0.0
+CACHE_TTL = 300  # 5 minutes
+
+class AccessMiddleware(BaseMiddleware):
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
@@ -22,11 +29,29 @@ class BanMiddleware(BaseMiddleware):
             user = event.from_user
 
         if user:
-            db_user = await db.get_user(user.id)
-            if db_user and db_user.get("is_banned"):
-                logger.warning(f"Blocked request from banned user {user.id}")
+            # 1. Hardcoded allow (developers and owner)
+            if user.id in settings.developer_ids or user.id == settings.owner_id:
+                return await handler(event, data)
+                
+            # 2. Check cache for Google Sheets whitelist
+            global CACHE_ALLOWED_IDS, CACHE_TIMESTAMP
+            now = time.time()
+            if now - CACHE_TIMESTAMP > CACHE_TTL or not CACHE_ALLOWED_IDS:
+                try:
+                    sheets = data.get("sheets")
+                    if sheets:
+                        # Run sync call in a separate thread so it doesn't block the async loop
+                        allowed_ids = await asyncio.to_thread(sheets.get_allowed_ids)
+                        CACHE_ALLOWED_IDS = allowed_ids
+                        CACHE_TIMESTAMP = now
+                except Exception as e:
+                    logger.error("Failed to update allowed IDs cache: %s", e)
+            
+            # 3. Check if user is in whitelist
+            if str(user.id) not in CACHE_ALLOWED_IDS:
+                logger.warning("Blocked unauthorized request from user %s", user.id)
                 if isinstance(event, Message):
-                    await event.answer("❌ У вас нет доступа к боту. Свяжитесь с администратором.")
+                    await event.answer("❌ У вас нет доступа к боту. Обратитесь к администратору.")
                 elif isinstance(event, CallbackQuery):
                     await event.answer("❌ У вас нет доступа к боту.", show_alert=True)
                 return # Drop the update

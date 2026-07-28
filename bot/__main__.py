@@ -55,7 +55,7 @@ async def main():
     )
     dp = Dispatcher()
 
-    from bot.middlewares import BanMiddleware
+    from bot.middlewares import AccessMiddleware
     
     # Register routers (order matters: admin first for command priority)
     dp.include_router(admin_router)
@@ -63,8 +63,8 @@ async def main():
     dp.include_router(request_router)
 
     # Register middlewares
-    dp.message.middleware(BanMiddleware())
-    dp.callback_query.middleware(BanMiddleware())
+    dp.message.middleware(AccessMiddleware())
+    dp.callback_query.middleware(AccessMiddleware())
 
     # Inject SheetsService into all handlers via aiogram 3 dependency injection
     dp["sheets"] = sheets
