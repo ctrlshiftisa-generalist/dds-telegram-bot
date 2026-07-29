@@ -152,14 +152,48 @@ async def project_chosen(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RequestCreation.entering_amount)
 async def amount_entered(message: Message, state: FSMContext):
-    raw_amount = message.text.replace(" ", "").replace(",", ".")
+    raw_text = message.text.strip()
+    cleaned = raw_text.replace(" ", "").replace("\u00a0", "")
+    
+    if not cleaned.replace(".", "").replace(",", "").isdigit():
+        await message.answer(
+            "❌ Некорректная сумма.\n\n"
+            "Пожалуйста, вводите сумму <b>только цифрами и обязательно с пробелами</b> между тысячами.\n"
+            "Примеры: <code>100 000</code>, <code>77 000</code>, <code>3 000 000</code>.",
+            parse_mode="HTML"
+        )
+        return
+        
+    cleaned_float_str = cleaned.replace(",", ".")
     try:
-        amount = float(raw_amount)
+        amount = float(cleaned_float_str)
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Некорректная сумма. Пожалуйста, введите число (например, 50000):")
+        await message.answer("❌ Некорректная сумма. Пожалуйста, введите число (например, 100 000):")
         return
+
+    # Formatting check: user must use spaces for thousands
+    if amount.is_integer():
+        expected_format = f"{int(amount):,}".replace(",", " ")
+        if raw_text != expected_format:
+            await message.answer(
+                "❌ Сумма введена неверно.\n\n"
+                "Пожалуйста, вводите сумму <b>обязательно с пробелами</b> между тысячами.\n"
+                "Примеры: <code>100 000</code>, <code>77 000</code>, <code>3 000 000</code>.",
+                parse_mode="HTML"
+            )
+            return
+    else:
+        # If they entered decimals, require spaces if amount >= 1000
+        if amount >= 1000 and " " not in raw_text:
+            await message.answer(
+                "❌ Сумма введена неверно.\n\n"
+                "Пожалуйста, вводите сумму <b>обязательно с пробелами</b> между тысячами.\n"
+                "Примеры: <code>100 000</code>, <code>77 000</code>, <code>3 000 000</code>.",
+                parse_mode="HTML"
+            )
+            return
 
     await state.update_data(amount=amount)
     
