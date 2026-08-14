@@ -395,7 +395,7 @@ class SheetsService:
             return None
         actual_sheet_name, sheet_id = sheet_info
 
-        values = [[date, operation_type, amount, employee_name, "", project, period, comment]]
+        values = [[date, operation_type, amount, employee_name, "", project, period, comment, False]]
         
         target_row = self._find_bottom_row(
             spreadsheet_id=self._spreadsheet_id,
@@ -403,7 +403,7 @@ class SheetsService:
             start_row=5,
             col_letter='A',
         )
-        range_name = f"'{actual_sheet_name}'!A{target_row}:H{target_row}"
+        range_name = f"'{actual_sheet_name}'!A{target_row}:I{target_row}"
 
         for attempt in range(3):
             try:
@@ -479,7 +479,7 @@ class SheetsService:
             
         actual_sheet_name, sheet_id = sheet_info
 
-        values = [[date, operation_type, amount, employee_name, "", project_name, period, requisites]]
+        values = [[date, operation_type, amount, employee_name, "", project_name, period, requisites, False]]
         
         target_row = self._find_bottom_row(
             spreadsheet_id=self._payments_spreadsheet_id,
@@ -487,7 +487,7 @@ class SheetsService:
             start_row=3,
             col_letter='A',
         )
-        range_name = f"'{actual_sheet_name}'!A{target_row}:H{target_row}"
+        range_name = f"'{actual_sheet_name}'!A{target_row}:I{target_row}"
 
         for attempt in range(3):
             try:
