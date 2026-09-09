@@ -416,27 +416,30 @@ class SheetsService:
                 
                 # Copy formatting (including checkboxes and dropdowns) from the row above
                 if target_row > 5:
-                    self._service.spreadsheets().batchUpdate(
-                        spreadsheetId=self._spreadsheet_id,
-                        body={
-                            "requests": [{
-                                "copyPaste": {
-                                    "source": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": target_row - 2,
-                                        "endRowIndex": target_row - 1,
-                                    },
-                                    "destination": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": target_row - 1,
-                                        "endRowIndex": target_row,
-                                    },
-                                    "pasteType": "PASTE_FORMAT",
-                                    "pasteOrientation": "NORMAL"
-                                }
-                            }]
-                        }
-                    ).execute()
+                    try:
+                        self._service.spreadsheets().batchUpdate(
+                            spreadsheetId=self._spreadsheet_id,
+                            body={
+                                "requests": [{
+                                    "copyPaste": {
+                                        "source": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 2,
+                                            "endRowIndex": target_row - 1,
+                                        },
+                                        "destination": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 1,
+                                            "endRowIndex": target_row,
+                                        },
+                                        "pasteType": "PASTE_FORMAT",
+                                        "pasteOrientation": "NORMAL"
+                                    }
+                                }]
+                            }
+                        ).execute()
+                    except Exception as format_exc:
+                        logger.warning("Could not copy formatting to ДДС row %s: %s", target_row, format_exc)
                 
                 logger.info(
                     "Row written to ДДС: %s (updated range: %s)",
@@ -500,27 +503,30 @@ class SheetsService:
                 
                 # Copy formatting (including checkboxes) from the row above
                 if target_row > 3:
-                    self._service.spreadsheets().batchUpdate(
-                        spreadsheetId=self._payments_spreadsheet_id,
-                        body={
-                            "requests": [{
-                                "copyPaste": {
-                                    "source": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": target_row - 2,
-                                        "endRowIndex": target_row - 1,
-                                    },
-                                    "destination": {
-                                        "sheetId": sheet_id,
-                                        "startRowIndex": target_row - 1,
-                                        "endRowIndex": target_row,
-                                    },
-                                    "pasteType": "PASTE_FORMAT",
-                                    "pasteOrientation": "NORMAL"
-                                }
-                            }]
-                        }
-                    ).execute()
+                    try:
+                        self._service.spreadsheets().batchUpdate(
+                            spreadsheetId=self._payments_spreadsheet_id,
+                            body={
+                                "requests": [{
+                                    "copyPaste": {
+                                        "source": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 2,
+                                            "endRowIndex": target_row - 1,
+                                        },
+                                        "destination": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 1,
+                                            "endRowIndex": target_row,
+                                        },
+                                        "pasteType": "PASTE_FORMAT",
+                                        "pasteOrientation": "NORMAL"
+                                    }
+                                }]
+                            }
+                        ).execute()
+                    except Exception as format_exc:
+                        logger.warning("Could not copy formatting to Оплаты row %s: %s", target_row, format_exc)
                 
                 logger.info(
                     "Row written to Оплаты/%s: %s (updated range: %s)",
