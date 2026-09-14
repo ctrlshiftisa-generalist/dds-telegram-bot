@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
@@ -215,7 +215,7 @@ async def requisites_entered(message: Message, state: FSMContext):
 # ── Step 5: Confirmation ──────────────────────────────────────────────────
 
 @router.callback_query(RequestCreation.confirming, F.data == "confirm_submit")
-async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: SheetsService):
+async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: SheetsService, bot: Bot):
     user_id = callback.from_user.id
 
     # Double-click guard
@@ -312,6 +312,16 @@ async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: She
             await callback.message.answer(
                 "Выберите действие:", reply_markup=main_menu_kb()
             )
+            
+            try:
+                owner_text = f"🔔 <b>Новая заявка заполнена!</b>\n\n" + _build_confirmation_text(data)
+                await bot.send_message(
+                    chat_id=settings.owner_id,
+                    text=owner_text,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error("Failed to send notification to owner: %s", e)
         else:
             await db.save_request(
                 telegram_id=user_id,
