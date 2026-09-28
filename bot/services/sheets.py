@@ -3,7 +3,6 @@
 import logging
 import time
 from typing import Optional
-from datetime import datetime, date
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -436,6 +435,22 @@ class SheetsService:
                                         "pasteType": "PASTE_FORMAT",
                                         "pasteOrientation": "NORMAL"
                                     }
+                                },
+                                {
+                                    "copyPaste": {
+                                        "source": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 2,
+                                            "endRowIndex": target_row - 1,
+                                        },
+                                        "destination": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 1,
+                                            "endRowIndex": target_row,
+                                        },
+                                        "pasteType": "PASTE_DATA_VALIDATION",
+                                        "pasteOrientation": "NORMAL"
+                                    }
                                 }]
                             }
                         ).execute()
@@ -523,6 +538,22 @@ class SheetsService:
                                         "pasteType": "PASTE_FORMAT",
                                         "pasteOrientation": "NORMAL"
                                     }
+                                },
+                                {
+                                    "copyPaste": {
+                                        "source": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 2,
+                                            "endRowIndex": target_row - 1,
+                                        },
+                                        "destination": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": target_row - 1,
+                                            "endRowIndex": target_row,
+                                        },
+                                        "pasteType": "PASTE_DATA_VALIDATION",
+                                        "pasteOrientation": "NORMAL"
+                                    }
                                 }]
                             }
                         ).execute()
@@ -568,6 +599,22 @@ class SheetsService:
             comment=comment,
         )
 
+    def _dates_match(self, sheet_date: str, req_date: str) -> bool:
+        """Helper to match dates, handling Google Sheets serial numbers like 46293."""
+        sheet_date = sheet_date.strip()
+        if sheet_date == req_date:
+            return True
+        try:
+            val = float(sheet_date.replace(',', '.'))
+            import datetime
+            base_date = datetime.date(1899, 12, 30)
+            delta = datetime.timedelta(days=int(val))
+            if (base_date + delta).strftime("%d.%m.%Y") == req_date:
+                return True
+        except Exception:
+            pass
+        return False
+
     def mark_as_paid(self, req_data: dict) -> bool:
         """
         Marks a specific request as paid (checks the box in column I)
@@ -593,21 +640,8 @@ class SheetsService:
                             sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
                         except ValueError:
                             continue
-                            
-                        # Handle date (string match OR serial match)
-                        sheet_date = row[0].strip()
-                        req_date = req_data['date']
-                        date_match = (sheet_date == req_date)
-                        if not date_match:
-                            try:
-                                d = datetime.strptime(req_date, "%d.%m.%Y").date()
-                                serial = str((d - date(1899, 12, 30)).days)
-                                if sheet_date == serial:
-                                    date_match = True
-                            except Exception:
-                                pass
                         
-                        if (date_match and
+                        if (self._dates_match(row[0], req_data['date']) and
                             row[1].strip() == req_data['operation_type'] and
                             abs(sheet_amount - req_amount) < 0.01 and
                             row[3].strip() == req_data['employee_name'] and
@@ -642,19 +676,7 @@ class SheetsService:
                         except ValueError:
                             continue
                             
-                        sheet_date = row[0].strip()
-                        req_date = req_data['date']
-                        date_match = (sheet_date == req_date)
-                        if not date_match:
-                            try:
-                                d = datetime.strptime(req_date, "%d.%m.%Y").date()
-                                serial = str((d - date(1899, 12, 30)).days)
-                                if sheet_date == serial:
-                                    date_match = True
-                            except Exception:
-                                pass
-                                
-                        if (date_match and
+                        if (self._dates_match(row[0], req_data['date']) and
                             row[1].strip() == req_data['operation_type'] and
                             abs(sheet_amount - req_amount) < 0.01 and
                             row[3].strip() == req_data['employee_name'] and
