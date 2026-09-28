@@ -3,6 +3,7 @@
 import logging
 import time
 from typing import Optional
+from datetime import datetime, date
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -592,8 +593,21 @@ class SheetsService:
                             sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
                         except ValueError:
                             continue
+                            
+                        # Handle date (string match OR serial match)
+                        sheet_date = row[0].strip()
+                        req_date = req_data['date']
+                        date_match = (sheet_date == req_date)
+                        if not date_match:
+                            try:
+                                d = datetime.strptime(req_date, "%d.%m.%Y").date()
+                                serial = str((d - date(1899, 12, 30)).days)
+                                if sheet_date == serial:
+                                    date_match = True
+                            except Exception:
+                                pass
                         
-                        if (row[0].strip() == req_data['date'] and
+                        if (date_match and
                             row[1].strip() == req_data['operation_type'] and
                             abs(sheet_amount - req_amount) < 0.01 and
                             row[3].strip() == req_data['employee_name'] and
@@ -628,7 +642,19 @@ class SheetsService:
                         except ValueError:
                             continue
                             
-                        if (row[0].strip() == req_data['date'] and
+                        sheet_date = row[0].strip()
+                        req_date = req_data['date']
+                        date_match = (sheet_date == req_date)
+                        if not date_match:
+                            try:
+                                d = datetime.strptime(req_date, "%d.%m.%Y").date()
+                                serial = str((d - date(1899, 12, 30)).days)
+                                if sheet_date == serial:
+                                    date_match = True
+                            except Exception:
+                                pass
+                                
+                        if (date_match and
                             row[1].strip() == req_data['operation_type'] and
                             abs(sheet_amount - req_amount) < 0.01 and
                             row[3].strip() == req_data['employee_name'] and
