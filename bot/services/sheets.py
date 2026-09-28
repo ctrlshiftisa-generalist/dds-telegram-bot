@@ -566,3 +566,85 @@ class SheetsService:
             period=period,
             comment=comment,
         )
+
+    def mark_as_paid(self, req_data: dict) -> bool:
+        """
+        Marks a specific request as paid (checks the box in column I)
+        in both ДДС and Оплаты spreadsheets.
+        """
+        # req_data must contain: date, operation_type, amount, employee_name, project
+        req_amount = float(req_data['amount'])
+        success = False
+
+        # 1. Update ДДС
+        dds_sheet_info = self._get_actual_sheet_info(self._spreadsheet_id, self._sheet_name)
+        if dds_sheet_info:
+            actual_dds_name, _ = dds_sheet_info
+            dds_range = f"'{actual_dds_name}'!A5:I"
+            try:
+                result = self._sheets.values().get(spreadsheetId=self._spreadsheet_id, range=dds_range).execute()
+                rows = result.get("values", [])
+                for i, row in enumerate(rows):
+                    # row structure: 0=Date, 1=Type, 2=Amount, 3=User, 4=empty, 5=Project, 6=Period, 7=Comment, 8=Checkbox
+                    if len(row) >= 6:
+                        try:
+                            # Handle amounts like "10 000,50" -> 10000.50
+                            sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
+                        except ValueError:
+                            continue
+                        
+                        if (row[0].strip() == req_data['date'] and
+                            row[1].strip() == req_data['operation_type'] and
+                            abs(sheet_amount - req_amount) < 0.01 and
+                            row[3].strip() == req_data['employee_name'] and
+                            row[5].strip() == req_data['project']):
+                            
+                            row_idx = i + 5
+                            update_range = f"'{actual_dds_name}'!I{row_idx}"
+                            self._sheets.values().update(
+                                spreadsheetId=self._spreadsheet_id,
+                                range=update_range,
+                                valueInputOption="USER_ENTERED",
+                                body={"values": [[True]]}
+                            ).execute()
+                            success = True
+                            logger.info(f"Marked as paid in ДДС at row {row_idx}")
+                            break
+            except Exception as e:
+                logger.error(f"Error marking paid in ДДС: {e}", exc_info=True)
+
+        # 2. Update Оплаты
+        payments_sheet_info = self._get_actual_sheet_info(self._payments_spreadsheet_id, req_data['project'])
+        if payments_sheet_info:
+            actual_pay_name, _ = payments_sheet_info
+            pay_range = f"'{actual_pay_name}'!A3:I"
+            try:
+                result = self._sheets.values().get(spreadsheetId=self._payments_spreadsheet_id, range=pay_range).execute()
+                rows = result.get("values", [])
+                for i, row in enumerate(rows):
+                    if len(row) >= 6:
+                        try:
+                            sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
+                        except ValueError:
+                            continue
+                            
+                        if (row[0].strip() == req_data['date'] and
+                            row[1].strip() == req_data['operation_type'] and
+                            abs(sheet_amount - req_amount) < 0.01 and
+                            row[3].strip() == req_data['employee_name'] and
+                            row[5].strip() == req_data['project']):
+                            
+                            row_idx = i + 3
+                            update_range = f"'{actual_pay_name}'!I{row_idx}"
+                            self._sheets.values().update(
+                                spreadsheetId=self._payments_spreadsheet_id,
+                                range=update_range,
+                                valueInputOption="USER_ENTERED",
+                                body={"values": [[True]]}
+                            ).execute()
+                            logger.info(f"Marked as paid in Оплаты at row {row_idx}")
+                            break
+            except Exception as e:
+                logger.error(f"Error marking paid in Оплаты: {e}", exc_info=True)
+
+        return success

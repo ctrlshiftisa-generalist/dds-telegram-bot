@@ -329,3 +329,19 @@ async def get_user_request_count(telegram_id: int) -> int:
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
+
+
+async def get_request(request_id: int) -> Optional[dict]:
+    """Get request by ID."""
+    async with aiosqlite.connect(_get_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM requests WHERE id = ?", (request_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def update_request_status(request_id: int, status: str) -> None:
+    """Update request status."""
+    async with aiosqlite.connect(_get_path()) as db:
+        await db.execute("UPDATE requests SET status = ? WHERE id = ?", (status, request_id))
+        await db.commit()

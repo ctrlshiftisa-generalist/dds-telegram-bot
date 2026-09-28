@@ -79,6 +79,12 @@ def confirm_kb() -> InlineKeyboardMarkup:
     ])
 
 
+def owner_payment_kb(request_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Оплатить ✅", callback_data=f"pay_req:{request_id}")]
+    ])
+
+
 # ── Edit field selector ───────────────────────────────────────────────────
 
 def edit_field_kb(has_project_choice: bool = True) -> InlineKeyboardMarkup:

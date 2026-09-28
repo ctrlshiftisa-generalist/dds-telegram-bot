@@ -283,7 +283,7 @@ async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: She
 
         if dds_ok:
             updated_range = dds_result.get("updatedRange", "неизвестно")
-            await db.save_request(
+            req_id = await db.save_request(
                 telegram_id=user_id,
                 employee_name=data["employee_name"],
                 date=data["date"],
@@ -315,9 +315,11 @@ async def confirm_submit(callback: CallbackQuery, state: FSMContext, sheets: She
             
             try:
                 owner_text = f"🔔 <b>Новая заявка заполнена!</b>\n\n" + _build_confirmation_text(data)
+                from ..keyboards import owner_payment_kb
                 await bot.send_message(
                     chat_id=settings.owner_id,
                     text=owner_text,
+                    reply_markup=owner_payment_kb(req_id),
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -417,3 +419,44 @@ async def cancel_request(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Заявка отменена.")
     await callback.message.answer("Выберите действие:", reply_markup=main_menu_kb())
     await callback.answer()
+
+
+# ── Process Payment ────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("pay_req:"))
+async def process_payment(callback: CallbackQuery, sheets: SheetsService, bot: Bot):
+    req_id = int(callback.data.split(":")[1])
+    
+    req_data = await db.get_request(req_id)
+    if not req_data:
+        await callback.answer("Заявка не найдена в базе.", show_alert=True)
+        return
+        
+    if req_data['status'] == 'paid':
+        await callback.answer("Уже оплачено!", show_alert=True)
+        return
+        
+    await callback.message.edit_text(
+        callback.message.html_text + "\n\n⏳ <i>Отмечаем в таблицах...</i>",
+        parse_mode="HTML"
+    )
+    
+    success = await asyncio.to_thread(sheets.mark_as_paid, req_data)
+    
+    if success:
+        await db.update_request_status(req_id, "paid")
+        new_text = callback.message.html_text.replace("⏳ <i>Отмечаем в таблицах...</i>", "\n\n✅ <b>ОПЛАЧЕНО В ТАБЛИЦАХ</b>")
+        await callback.message.edit_text(new_text, parse_mode="HTML")
+        
+        try:
+            amount_str = format_amount(req_data['amount'])
+            await bot.send_message(
+                chat_id=req_data['telegram_id'],
+                text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Could not notify user {req_data['telegram_id']} about payment: {e}")
+    else:
+        new_text = callback.message.html_text.replace("⏳ <i>Отмечаем в таблицах...</i>", "\n\n❌ Ошибка при отметке в таблицах (строка не найдена)")
+        await callback.message.edit_text(new_text, parse_mode="HTML")
