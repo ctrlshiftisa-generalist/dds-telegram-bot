@@ -60,10 +60,20 @@ def format_amount(amount: float) -> str:
         return f"{formatted_int}{decimal_str}"
 
 
+# Short Russian month abbreviations for period display (matching ДДС format)
+MONTH_ABBR_SHORT = {
+    1: "янв.", 2: "февр.", 3: "март", 4: "апр.",
+    5: "май", 6: "июнь", 7: "июль", 8: "авг.",
+    9: "сент.", 10: "окт.", 11: "нояб.", 12: "дек.",
+}
+
+
 def get_current_period() -> str:
-    """Get current period string in format '01.mm.yyyy'."""
+    """Get current period as human-readable text, e.g. 'сент. 2026'."""
     now = datetime.now()
-    return f"01.{now.strftime('%m.%Y')}"
+    month_name = MONTH_ABBR_SHORT.get(now.month, now.strftime("%m"))
+    return f"{month_name} {now.year}"
+
 
 
 def get_today_date() -> str:

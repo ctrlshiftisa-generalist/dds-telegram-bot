@@ -441,11 +441,41 @@ async def process_payment(callback: CallbackQuery, sheets: SheetsService, bot: B
         parse_mode="HTML"
     )
     
-    success = await asyncio.to_thread(sheets.mark_as_paid, req_data)
+    result = await asyncio.to_thread(sheets.mark_as_paid, req_data)
     
-    if success:
+    dds_ok = result.get("dds_ok", False)
+    payments_ok = result.get("payments_ok", False)
+    
+    if dds_ok and payments_ok:
+        # Both tables updated
         await db.update_request_status(req_id, "paid")
-        new_text = callback.message.html_text.replace("⏳ <i>Отмечаем в таблицах...</i>", "\n\n✅ <b>ОПЛАЧЕНО В ТАБЛИЦАХ</b>")
+        status_line = "✅ <b>ОПЛАЧЕНО</b>\n✅ Галка в ДДС\n✅ Галка в Оплатах"
+        new_text = callback.message.html_text.replace(
+            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
+        )
+        await callback.message.edit_text(new_text, parse_mode="HTML")
+        
+        try:
+            amount_str = format_amount(req_data['amount'])
+            await bot.send_message(
+                chat_id=req_data['telegram_id'],
+                text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Could not notify user {req_data['telegram_id']} about payment: {e}")
+    elif dds_ok and not payments_ok:
+        # DDS updated but payments failed
+        await db.update_request_status(req_id, "paid")
+        status_line = (
+            "⚠️ <b>ЧАСТИЧНО ОПЛАЧЕНО</b>\n"
+            "✅ Галка в ДДС\n"
+            "❌ Галка в Оплатах — строка не найдена!\n"
+            "<i>Проверьте таблицу Оплаты вручную</i>"
+        )
+        new_text = callback.message.html_text.replace(
+            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
+        )
         await callback.message.edit_text(new_text, parse_mode="HTML")
         
         try:
@@ -458,5 +488,17 @@ async def process_payment(callback: CallbackQuery, sheets: SheetsService, bot: B
         except Exception as e:
             logger.error(f"Could not notify user {req_data['telegram_id']} about payment: {e}")
     else:
-        new_text = callback.message.html_text.replace("⏳ <i>Отмечаем в таблицах...</i>", "\n\n❌ Ошибка при отметке в таблицах (строка не найдена)")
+        # DDS failed (critical)
+        dds_icon = "✅" if dds_ok else "❌"
+        pay_icon = "✅" if payments_ok else "❌"
+        status_line = (
+            f"❌ Ошибка при отметке в таблицах\n"
+            f"{dds_icon} Галка в ДДС\n"
+            f"{pay_icon} Галка в Оплатах\n"
+            f"<i>Строка не найдена — проверьте данные</i>"
+        )
+        new_text = callback.message.html_text.replace(
+            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
+        )
         await callback.message.edit_text(new_text, parse_mode="HTML")
+

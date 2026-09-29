@@ -615,84 +615,182 @@ class SheetsService:
             pass
         return False
 
+    def _find_and_mark_row(
+        self,
+        spreadsheet_id: str,
+        sheet_name: str,
+        data_start_row: int,
+        req_data: dict,
+        table_label: str,
+    ) -> bool:
+        """
+        Search for the matching row in a sheet and set column I to TRUE.
+
+        Matching logic:
+          - Date (col A) — via _dates_match (handles serial numbers)
+          - Operation type (col B)
+          - Amount (col C) — float comparison ±0.01
+          - Employee name (col D)
+          - Project (col F, index 5)
+
+        If no column F exists, we skip the project check (some Оплаты sheets
+        may not have the empty column E, so project lands in col E instead).
+
+        Returns True if we found and marked the row, False otherwise.
+        """
+        req_amount = float(req_data['amount'])
+        range_name = f"'{sheet_name}'!A{data_start_row}:I"
+
+        logger.info(
+            "[%s] Searching for row: date=%s type=%s amount=%s user=%s project=%s  (range=%s, spreadsheet=%s)",
+            table_label, req_data['date'], req_data['operation_type'],
+            req_amount, req_data['employee_name'], req_data['project'],
+            range_name, spreadsheet_id,
+        )
+
+        try:
+            result = self._sheets.values().get(
+                spreadsheetId=spreadsheet_id, range=range_name
+            ).execute()
+        except Exception as e:
+            logger.error("[%s] Failed to read data: %s", table_label, e, exc_info=True)
+            return False
+
+        rows = result.get("values", [])
+        if not rows:
+            logger.warning("[%s] No data rows found in range %s", table_label, range_name)
+            return False
+
+        logger.info("[%s] Read %d rows starting at row %d", table_label, len(rows), data_start_row)
+
+        best_match_score = 0
+        best_match_details = ""
+
+        for i, row in enumerate(rows):
+            if len(row) < 4:
+                continue
+
+            # Parse amount
+            try:
+                sheet_amount = float(
+                    str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', '')
+                )
+            except (ValueError, IndexError):
+                continue
+
+            # Check each field and collect match info
+            date_ok = self._dates_match(row[0], req_data['date'])
+            type_ok = row[1].strip() == req_data['operation_type']
+            amount_ok = abs(sheet_amount - req_amount) < 0.01
+            user_ok = row[3].strip() == req_data['employee_name']
+
+            # Project check — try col F (index 5) first, then col E (index 4)
+            project_ok = False
+            if len(row) > 5 and row[5].strip():
+                project_ok = row[5].strip() == req_data['project']
+            elif len(row) > 4 and row[4].strip():
+                # Fallback: maybe there's no empty column E in this sheet
+                project_ok = row[4].strip() == req_data['project']
+            else:
+                # If neither col has data, skip project check entirely
+                project_ok = True
+
+            # Score this row
+            score = sum([date_ok, type_ok, amount_ok, user_ok, project_ok])
+
+            if score > best_match_score:
+                best_match_score = score
+                row_num = i + data_start_row
+                project_val = repr(row[5]) if len(row) > 5 else 'N/A'
+                best_match_details = (
+                    f"row {row_num}: date={row[0]!r}({'✓' if date_ok else '✗'}) "
+                    f"type={row[1]!r}({'✓' if type_ok else '✗'}) "
+                    f"amount={row[2]!r}→{sheet_amount}({'✓' if amount_ok else '✗'}) "
+                    f"user={row[3]!r}({'✓' if user_ok else '✗'}) "
+                    f"project={project_val}({'✓' if project_ok else '✗'})"
+                )
+
+            if date_ok and type_ok and amount_ok and user_ok and project_ok:
+                # ── Already marked? ──
+                already_marked = (
+                    len(row) > 8
+                    and str(row[8]).strip().upper() in ("TRUE", "ИСТИНА", "1")
+                )
+                if already_marked:
+                    logger.info("[%s] Row %d already marked as paid — skipping", table_label, i + data_start_row)
+                    return True
+
+                row_idx = i + data_start_row
+                update_range = f"'{sheet_name}'!I{row_idx}"
+                try:
+                    self._sheets.values().update(
+                        spreadsheetId=spreadsheet_id,
+                        range=update_range,
+                        valueInputOption="USER_ENTERED",
+                        body={"values": [[True]]},
+                    ).execute()
+                    logger.info("[%s] ✅ Marked as paid at row %d", table_label, row_idx)
+                    return True
+                except Exception as e:
+                    logger.error(
+                        "[%s] Failed to write TRUE to %s: %s",
+                        table_label, update_range, e, exc_info=True,
+                    )
+                    return False
+
+        # If we get here, no exact match was found
+        logger.warning(
+            "[%s] ❌ Row NOT found. Best candidate (score %d/5): %s",
+            table_label, best_match_score, best_match_details or "no rows checked",
+        )
+        return False
+
     def mark_as_paid(self, req_data: dict) -> bool:
         """
         Marks a specific request as paid (checks the box in column I)
         in both ДДС and Оплаты spreadsheets.
+
+        Returns True only if BOTH tables were updated (or the Оплаты sheet
+        does not exist for this project).
         """
-        # req_data must contain: date, operation_type, amount, employee_name, project
-        req_amount = float(req_data['amount'])
-        success = False
+        dds_ok = False
+        payments_ok = False
 
         # 1. Update ДДС
         dds_sheet_info = self._get_actual_sheet_info(self._spreadsheet_id, self._sheet_name)
         if dds_sheet_info:
             actual_dds_name, _ = dds_sheet_info
-            dds_range = f"'{actual_dds_name}'!A5:I"
-            try:
-                result = self._sheets.values().get(spreadsheetId=self._spreadsheet_id, range=dds_range).execute()
-                rows = result.get("values", [])
-                for i, row in enumerate(rows):
-                    # row structure: 0=Date, 1=Type, 2=Amount, 3=User, 4=empty, 5=Project, 6=Period, 7=Comment, 8=Checkbox
-                    if len(row) >= 6:
-                        try:
-                            # Handle amounts like "10 000,50" -> 10000.50
-                            sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
-                        except ValueError:
-                            continue
-                        
-                        if (self._dates_match(row[0], req_data['date']) and
-                            row[1].strip() == req_data['operation_type'] and
-                            abs(sheet_amount - req_amount) < 0.01 and
-                            row[3].strip() == req_data['employee_name'] and
-                            row[5].strip() == req_data['project']):
-                            
-                            row_idx = i + 5
-                            update_range = f"'{actual_dds_name}'!I{row_idx}"
-                            self._sheets.values().update(
-                                spreadsheetId=self._spreadsheet_id,
-                                range=update_range,
-                                valueInputOption="USER_ENTERED",
-                                body={"values": [[True]]}
-                            ).execute()
-                            success = True
-                            logger.info(f"Marked as paid in ДДС at row {row_idx}")
-                            break
-            except Exception as e:
-                logger.error(f"Error marking paid in ДДС: {e}", exc_info=True)
+            dds_ok = self._find_and_mark_row(
+                spreadsheet_id=self._spreadsheet_id,
+                sheet_name=actual_dds_name,
+                data_start_row=5,
+                req_data=req_data,
+                table_label="ДДС",
+            )
+        else:
+            logger.error("Could not find ДДС sheet '%s'", self._sheet_name)
 
         # 2. Update Оплаты
-        payments_sheet_info = self._get_actual_sheet_info(self._payments_spreadsheet_id, req_data['project'])
+        payments_sheet_info = self._get_actual_sheet_info(
+            self._payments_spreadsheet_id, req_data['project']
+        )
         if payments_sheet_info:
             actual_pay_name, _ = payments_sheet_info
-            pay_range = f"'{actual_pay_name}'!A3:I"
-            try:
-                result = self._sheets.values().get(spreadsheetId=self._payments_spreadsheet_id, range=pay_range).execute()
-                rows = result.get("values", [])
-                for i, row in enumerate(rows):
-                    if len(row) >= 6:
-                        try:
-                            sheet_amount = float(str(row[2]).replace(',', '.').replace(' ', '').replace('\xa0', ''))
-                        except ValueError:
-                            continue
-                            
-                        if (self._dates_match(row[0], req_data['date']) and
-                            row[1].strip() == req_data['operation_type'] and
-                            abs(sheet_amount - req_amount) < 0.01 and
-                            row[3].strip() == req_data['employee_name'] and
-                            row[5].strip() == req_data['project']):
-                            
-                            row_idx = i + 3
-                            update_range = f"'{actual_pay_name}'!I{row_idx}"
-                            self._sheets.values().update(
-                                spreadsheetId=self._payments_spreadsheet_id,
-                                range=update_range,
-                                valueInputOption="USER_ENTERED",
-                                body={"values": [[True]]}
-                            ).execute()
-                            logger.info(f"Marked as paid in Оплаты at row {row_idx}")
-                            break
-            except Exception as e:
-                logger.error(f"Error marking paid in Оплаты: {e}", exc_info=True)
+            payments_ok = self._find_and_mark_row(
+                spreadsheet_id=self._payments_spreadsheet_id,
+                sheet_name=actual_pay_name,
+                data_start_row=3,
+                req_data=req_data,
+                table_label=f"Оплаты/{req_data['project']}",
+            )
+        else:
+            logger.warning(
+                "Sheet '%s' not found in payments spreadsheet — skipping.",
+                req_data['project'],
+            )
+            # No payments sheet = not an error, consider it ok
+            payments_ok = True
 
-        return success
+        logger.info("mark_as_paid result: ДДС=%s, Оплаты=%s", dds_ok, payments_ok)
+        return {"dds_ok": dds_ok, "payments_ok": payments_ok}
+
