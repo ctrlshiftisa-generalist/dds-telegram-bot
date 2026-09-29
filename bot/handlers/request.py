@@ -426,79 +426,99 @@ async def cancel_request(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("pay_req:"))
 async def process_payment(callback: CallbackQuery, sheets: SheetsService, bot: Bot):
     req_id = int(callback.data.split(":")[1])
-    
+
+    # Acknowledge immediately to prevent Telegram timeout
+    await callback.answer()
+
     req_data = await db.get_request(req_id)
     if not req_data:
-        await callback.answer("Заявка не найдена в базе.", show_alert=True)
+        await callback.message.answer("❌ Заявка не найдена в базе.")
         return
-        
+
     if req_data['status'] == 'paid':
-        await callback.answer("Уже оплачено!", show_alert=True)
+        await callback.message.answer("✅ Эта заявка уже была оплачена ранее.")
         return
-        
+
+    # Save original text BEFORE editing (callback.message doesn't update after edit_text)
+    original_text = callback.message.html_text
+
     await callback.message.edit_text(
-        callback.message.html_text + "\n\n⏳ <i>Отмечаем в таблицах...</i>",
+        original_text + "\n\n⏳ <i>Отмечаем в таблицах...</i>",
         parse_mode="HTML"
     )
-    
-    result = await asyncio.to_thread(sheets.mark_as_paid, req_data)
-    
-    dds_ok = result.get("dds_ok", False)
-    payments_ok = result.get("payments_ok", False)
-    
-    if dds_ok and payments_ok:
-        # Both tables updated
-        await db.update_request_status(req_id, "paid")
-        status_line = "✅ <b>ОПЛАЧЕНО</b>\n✅ Галка в ДДС\n✅ Галка в Оплатах"
-        new_text = callback.message.html_text.replace(
-            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
-        )
-        await callback.message.edit_text(new_text, parse_mode="HTML")
-        
-        try:
-            amount_str = format_amount(req_data['amount'])
-            await bot.send_message(
-                chat_id=req_data['telegram_id'],
-                text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+
+    try:
+        result = await asyncio.to_thread(sheets.mark_as_paid, req_data)
+        dds_ok = result.get("dds_ok", False)
+        payments_ok = result.get("payments_ok", False)
+    except Exception as e:
+        logger.error("Exception in mark_as_paid: %s", e, exc_info=True)
+        dds_ok = False
+        payments_ok = False
+
+    try:
+        if dds_ok and payments_ok:
+            await db.update_request_status(req_id, "paid")
+            status_line = "✅ <b>ОПЛАЧЕНО</b>\n✅ Галка в ДДС\n✅ Галка в Оплатах"
+            await callback.message.edit_text(
+                original_text + f"\n\n{status_line}",
                 parse_mode="HTML"
             )
-        except Exception as e:
-            logger.error(f"Could not notify user {req_data['telegram_id']} about payment: {e}")
-    elif dds_ok and not payments_ok:
-        # DDS updated but payments failed
-        await db.update_request_status(req_id, "paid")
-        status_line = (
-            "⚠️ <b>ЧАСТИЧНО ОПЛАЧЕНО</b>\n"
-            "✅ Галка в ДДС\n"
-            "❌ Галка в Оплатах — строка не найдена!\n"
-            "<i>Проверьте таблицу Оплаты вручную</i>"
-        )
-        new_text = callback.message.html_text.replace(
-            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
-        )
-        await callback.message.edit_text(new_text, parse_mode="HTML")
-        
-        try:
-            amount_str = format_amount(req_data['amount'])
-            await bot.send_message(
-                chat_id=req_data['telegram_id'],
-                text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+            try:
+                amount_str = format_amount(req_data['amount'])
+                await bot.send_message(
+                    chat_id=req_data['telegram_id'],
+                    text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error("Could not notify user %s about payment: %s", req_data['telegram_id'], e)
+
+        elif dds_ok and not payments_ok:
+            await db.update_request_status(req_id, "paid")
+            status_line = (
+                "⚠️ <b>ЧАСТИЧНО ОПЛАЧЕНО</b>\n"
+                "✅ Галка в ДДС\n"
+                "❌ Галка в Оплатах — строка не найдена!\n"
+                "<i>Проверьте таблицу Оплаты вручную</i>"
+            )
+            await callback.message.edit_text(
+                original_text + f"\n\n{status_line}",
                 parse_mode="HTML"
             )
-        except Exception as e:
-            logger.error(f"Could not notify user {req_data['telegram_id']} about payment: {e}")
-    else:
-        # DDS failed (critical)
-        dds_icon = "✅" if dds_ok else "❌"
-        pay_icon = "✅" if payments_ok else "❌"
-        status_line = (
-            f"❌ Ошибка при отметке в таблицах\n"
-            f"{dds_icon} Галка в ДДС\n"
-            f"{pay_icon} Галка в Оплатах\n"
-            f"<i>Строка не найдена — проверьте данные</i>"
-        )
-        new_text = callback.message.html_text.replace(
-            "⏳ <i>Отмечаем в таблицах...</i>", f"\n\n{status_line}"
-        )
-        await callback.message.edit_text(new_text, parse_mode="HTML")
+            try:
+                amount_str = format_amount(req_data['amount'])
+                await bot.send_message(
+                    chat_id=req_data['telegram_id'],
+                    text=f"✅ <b>Ваша заявка оплачена!</b>\nСумма: {amount_str} ({req_data['project']})",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error("Could not notify user %s about payment: %s", req_data['telegram_id'], e)
+
+        else:
+            dds_icon = "✅" if dds_ok else "❌"
+            pay_icon = "✅" if payments_ok else "❌"
+            status_line = (
+                f"❌ <b>Ошибка при отметке в таблицах</b>\n"
+                f"{dds_icon} Галка в ДДС\n"
+                f"{pay_icon} Галка в Оплатах\n"
+                f"<i>Строка не найдена — проверьте данные</i>"
+            )
+            await callback.message.edit_text(
+                original_text + f"\n\n{status_line}",
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error("Error updating message after mark_as_paid: %s", e, exc_info=True)
+        try:
+            await callback.message.edit_text(
+                original_text + "\n\n❌ <b>Произошла ошибка — проверьте таблицы вручную</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
 
