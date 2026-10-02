@@ -471,6 +471,41 @@ class SheetsService:
         logger.error("Failed to append to ДДС after 3 attempts.")
         return None
 
+    def _create_sheet(self, spreadsheet_id: str, title: str) -> Optional[tuple[str, int]]:
+        """Create a new sheet with standard headers and return (title, sheet_id)."""
+        try:
+            body = {
+                "requests": [{
+                    "addSheet": {
+                        "properties": {
+                            "title": title
+                        }
+                    }
+                }]
+            }
+            res = self._service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body=body
+            ).execute()
+            sheet_id = res['replies'][0]['addSheet']['properties']['sheetId']
+            
+            # Write headers
+            header_values = [
+                ['Дата', 'Тип операции', 'Сумма', 'Пользователь', 'Получатель', 'Проект', 'За период', 'Комментарий', 'Оплата', '', 'ММ', 'ГГ', 'Расход', 'Приход']
+            ]
+            self._sheets.values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{title}'!A1:N1",
+                valueInputOption="USER_ENTERED",
+                body={"values": header_values}
+            ).execute()
+            
+            logger.info("Successfully created new sheet '%s' with ID %s", title, sheet_id)
+            return title, sheet_id
+        except Exception as e:
+            logger.error("Failed to create sheet %s: %s", title, e, exc_info=True)
+            return None
+
     # ── Write to Оплаты ───────────────────────────────────────────────────
 
     def append_to_payments(
@@ -489,12 +524,11 @@ class SheetsService:
         """
         sheet_info = self._get_actual_sheet_info(self._payments_spreadsheet_id, project_name)
         if not sheet_info:
-            logger.warning(
-                "Sheet matching '%s' not found in payments spreadsheet %s — skipping payments write.",
-                project_name,
-                self._payments_spreadsheet_id,
-            )
-            return False
+            logger.info("Sheet matching '%s' not found. Attempting to create it...", project_name)
+            sheet_info = self._create_sheet(self._payments_spreadsheet_id, project_name)
+            if not sheet_info:
+                logger.warning("Failed to create sheet '%s' — skipping payments write.", project_name)
+                return False
             
         actual_sheet_name, sheet_id = sheet_info
 
