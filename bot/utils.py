@@ -104,10 +104,12 @@ def parse_card_input(text: str) -> tuple[bool, str, str]:
         return False, "", "❌ Реквизиты не могут быть пустыми."
     
     # Check if the text starts with 16 digits formatted properly with spaces
-    match = re.match(r"^(\d{4} \d{4} \d{4} \d{4})(?:\s+(.*))?$", raw)
+    # \s between groups also covers non-breaking spaces from copy-paste;
+    # DOTALL lets the comment span several lines.
+    match = re.match(r"^(\d{4})\s(\d{4})\s(\d{4})\s(\d{4})(?:\s+(.*))?$", raw, re.DOTALL)
     if match:
-        card_str = match.group(1)
-        comment = match.group(2)
+        card_str = " ".join(match.group(i) for i in range(1, 5))
+        comment = match.group(5)
         if comment:
             return True, f"{card_str} {comment.strip()}", ""
         else:
